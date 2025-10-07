@@ -1,12 +1,22 @@
-
+// back/main.go
 package main
+
 import (
-  "fmt"
-  "net/http"
+	"log"
+	"net/http"
+	"os"
 )
+
 func main() {
-  http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintln(w, "Hello from Go backend")
+  mux := http.NewServeMux()
+  mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("OK"))
   })
-  http.ListenAndServe(":8080", nil)
+
+  port := os.Getenv("PORT")
+  if port == "" { port = "8080" }
+
+  log.Printf("listening on :%s", port)
+  log.Fatal(http.ListenAndServe(":"+port, mux))
 }
