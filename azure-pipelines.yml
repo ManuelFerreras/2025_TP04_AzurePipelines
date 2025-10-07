@@ -88,7 +88,7 @@ stages:
         strategy:
           runOnce:
             deploy:
-              pool: { vmImage: "ubuntu-latest" }
+              pool: { name: SelfHosted }
               steps:
                 - task: AzureWebApp@1
                   displayName: "Deploy BACK QA (zip)"
@@ -125,7 +125,7 @@ stages:
         strategy:
           runOnce:
             deploy:
-              pool: { vmImage: "ubuntu-latest" }
+              pool: { name: SelfHosted }
               steps:
                 - task: AzureWebApp@1
                   displayName: "Deploy FRONT QA (zip)"
@@ -169,7 +169,7 @@ stages:
         strategy:
           runOnce:
             deploy:
-              pool: { vmImage: "ubuntu-latest" }
+              pool: { name: SelfHosted }
               steps:
                 - task: AzureWebApp@1
                   displayName: "Deploy BACK PROD (zip)"
@@ -206,7 +206,7 @@ stages:
         strategy:
           runOnce:
             deploy:
-              pool: { vmImage: "ubuntu-latest" }
+              pool: { name: SelfHosted }
               steps:
                 - task: AzureWebApp@1
                   displayName: "Deploy FRONT PROD (zip)"
