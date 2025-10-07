@@ -97,6 +97,10 @@ stages:
           runOnce:
             deploy:
               steps:
+                - download: current
+                  artifact: drop
+                  displayName: "Descargar artifacts (QA BACK)"
+
                 - task: AzureWebApp@1
                   displayName: "Deploy BACK QA (zip)"
                   inputs:
@@ -135,6 +139,10 @@ stages:
           runOnce:
             deploy:
               steps:
+                - download: current
+                  artifact: drop
+                  displayName: "Descargar artifacts (QA FRONT)"
+
                 - task: AzureWebApp@1
                   displayName: "Deploy FRONT QA (zip)"
                   inputs:
@@ -185,6 +193,10 @@ stages:
           runOnce:
             deploy:
               steps:
+                - download: current
+                  artifact: drop
+                  displayName: "Descargar artifacts (PROD BACK)"
+
                 - task: AzureWebApp@1
                   displayName: "Deploy BACK PROD (zip)"
                   inputs:
@@ -223,6 +235,10 @@ stages:
           runOnce:
             deploy:
               steps:
+                - download: current
+                  artifact: drop
+                  displayName: "Descargar artifacts (PROD FRONT)"
+
                 - task: AzureWebApp@1
                   displayName: "Deploy FRONT PROD (zip)"
                   inputs:
