@@ -1,0 +1,60 @@
+# azure-pipelines.yml
+# CI para front+back en agente Self-Hosted
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - front/**
+      - back/**
+      - azure-pipelines.yml
+
+pool:
+  name: SelfHosted
+
+stages:
+  - stage: CI
+    displayName: "CI Front + Back"
+    jobs:
+      - job: Build_Front
+        displayName: "Build Frontend"
+        steps:
+          # Opcional: usar NodeTool para asegurar versión
+          - task: NodeTool@0
+            inputs:
+              versionSpec: "20.19.x"
+            displayName: "Use Node 20.19.x"
+
+          - script: |
+              cd front
+              npm ci
+              npm run build
+            displayName: "Install & Build Front"
+
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: "front/dist" # si usás Next, cambiar por 'front/.next'
+              artifact: "front-dist"
+              publishLocation: "pipeline"
+            displayName: "Publicar artefacto Front"
+
+      - job: Build_Back
+        displayName: "Build Backend"
+        steps:
+          - script: |
+              cd back
+              go version
+              go mod download
+              go test ./...
+              mkdir -p bin
+              go build -o bin/server ./...
+            displayName: "Test & Build Back"
+
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: "back/bin"
+              artifact: "back-bin"
+              publishLocation: "pipeline"
+            displayName: "Publicar artefacto Back"
