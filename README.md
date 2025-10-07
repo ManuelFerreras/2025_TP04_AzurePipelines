@@ -22,3 +22,7 @@ cd back && go run main.go # http://localhost:8080
 - Trigger: push a `main`
 - Jobs: Build_Front, Build_Back
 - Artefactos: `front-dist`, `back-bin`
+
+## Test
+
+- Rerun
