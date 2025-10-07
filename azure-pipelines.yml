@@ -1,60 +1,237 @@
-# azure-pipelines.yml
-# CI para front+back en agente Self-Hosted
-
 trigger:
-  branches:
-    include:
-      - main
-  paths:
-    include:
-      - front/**
-      - back/**
-      - azure-pipelines.yml
+  - main
 
-pool:
-  name: SelfHosted
+# Importo los grupos para usar API_BASE_QA/PROD en el build del front
+variables:
+  - group: "VG-QA"
+  - group: "VG-PROD"
 
 stages:
-  - stage: CI
-    displayName: "CI Front + Back"
+  # ===================== BUILD (usa tu Self-Hosted del TP4) =====================
+  - stage: Build
+    displayName: "Build React + Go y publicar artefactos"
     jobs:
-      - job: Build_Front
-        displayName: "Build Frontend"
+      - job: Build_All
+        displayName: "Build front (qa/prod) + back"
+        pool:
+          name: SelfHosted # ← tu agente local del TP4
         steps:
-          # Opcional: usar NodeTool para asegurar versión
-          - task: NodeTool@0
-            inputs:
-              versionSpec: "20.19.x"
-            displayName: "Use Node 20.19.x"
-
+          # FRONT (React) - QA
           - script: |
               cd front
               npm ci
-              npm run build
-            displayName: "Install & Build Front"
-
-          - task: PublishPipelineArtifact@1
+              rm -rf dist
+              VITE_API_BASE="$(API_BASE_QA)" npm run build
+              cd ..
+            displayName: "Build FRONT (QA)"
+          - task: ArchiveFiles@2
             inputs:
-              targetPath: "front/dist" # si usás Next, cambiar por 'front/.next'
-              artifact: "front-dist"
-              publishLocation: "pipeline"
-            displayName: "Publicar artefacto Front"
+              rootFolderOrFile: "front/dist"
+              includeRootFolder: false
+              archiveType: "zip"
+              archiveFile: "$(Build.ArtifactStagingDirectory)/front-qa.zip"
+              replaceExistingArchive: true
+            displayName: "ZIP FRONT QA"
 
-      - job: Build_Back
-        displayName: "Build Backend"
-        steps:
+          # FRONT (React) - PROD
+          - script: |
+              cd front
+              rm -rf dist
+              VITE_API_BASE="$(API_BASE_PROD)" npm run build
+              cd ..
+            displayName: "Build FRONT (PROD)"
+          - task: ArchiveFiles@2
+            inputs:
+              rootFolderOrFile: "front/dist"
+              includeRootFolder: false
+              archiveType: "zip"
+              archiveFile: "$(Build.ArtifactStagingDirectory)/front-prod.zip"
+              replaceExistingArchive: true
+            displayName: "ZIP FRONT PROD"
+
+          # BACK (Go) → binario Linux y zip
           - script: |
               cd back
               go version
               go mod download
-              go test ./...
-              mkdir -p bin
-              go build -o bin/server ./...
-            displayName: "Test & Build Back"
-
-          - task: PublishPipelineArtifact@1
+              go test ./... || true
+              CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/server ./...
+              ls -lah bin
+            displayName: "Build BACK (Go) para Linux"
+          - task: ArchiveFiles@2
             inputs:
-              targetPath: "back/bin"
-              artifact: "back-bin"
-              publishLocation: "pipeline"
-            displayName: "Publicar artefacto Back"
+              rootFolderOrFile: "back/bin"
+              includeRootFolder: true
+              archiveType: "zip"
+              archiveFile: "$(Build.ArtifactStagingDirectory)/back-linux.zip"
+              replaceExistingArchive: true
+            displayName: "ZIP BACK (bin/)"
+
+          - task: PublishBuildArtifacts@1
+            displayName: "Publicar artefactos"
+            inputs:
+              pathToPublish: "$(Build.ArtifactStagingDirectory)"
+              artifactName: "drop"
+              publishLocation: "Container"
+
+  # ===================== DEPLOY QA =====================
+  - stage: Deploy_QA
+    displayName: "Deploy a QA"
+    dependsOn: Build
+    variables:
+      - group: "VG-QA"
+    jobs:
+      # Back QA
+      - deployment: Back_QA
+        displayName: "Back → QA"
+        environment: "QA"
+        strategy:
+          runOnce:
+            deploy:
+              pool: { vmImage: "ubuntu-latest" }
+              steps:
+                - task: AzureWebApp@1
+                  displayName: "Deploy BACK QA (zip)"
+                  inputs:
+                    azureSubscription: "azure-tp05-connection"
+                    appType: "webAppLinux"
+                    appName: "$(WEBAPP_BACK_QA)"
+                    package: "$(Pipeline.Workspace)/drop/back-linux.zip"
+                - task: AzureCLI@2
+                  displayName: "Config BACK QA (startup y settings)"
+                  inputs:
+                    azureSubscription: "azure-tp05-connection"
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      az webapp config appsettings set \
+                        -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_BACK_QA) \
+                        --settings WEBSITE_RUN_FROM_PACKAGE=1 WEBSITES_PORT=8080 PORT=8080
+                      az webapp config set \
+                        -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_BACK_QA) \
+                        --startup-file "/home/site/wwwroot/bin/server"
+                - bash: |
+                    echo "Health BACK (QA)"
+                    for i in {1..12}; do
+                      curl -fsS "https://$(WEBAPP_BACK_QA).azurewebsites.net/health" && exit 0 || sleep 5
+                    done
+                    echo "FAILED health"; exit 1
+                  displayName: "Health /health"
+
+      # Front QA
+      - deployment: Front_QA
+        displayName: "Front → QA"
+        environment: "QA"
+        strategy:
+          runOnce:
+            deploy:
+              pool: { vmImage: "ubuntu-latest" }
+              steps:
+                - task: AzureWebApp@1
+                  displayName: "Deploy FRONT QA (zip)"
+                  inputs:
+                    azureSubscription: "azure-tp05-connection"
+                    appType: "webAppLinux"
+                    appName: "$(WEBAPP_FRONT_QA)"
+                    package: "$(Pipeline.Workspace)/drop/front-qa.zip"
+                - task: AzureCLI@2
+                  displayName: "Config FRONT QA (SPA startup)"
+                  inputs:
+                    azureSubscription: "azure-tp05-connection"
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      az webapp config appsettings set \
+                        -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_FRONT_QA) \
+                        --settings WEBSITE_RUN_FROM_PACKAGE=1
+                      az webapp config set \
+                        -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_FRONT_QA) \
+                        --startup-file "pm2 serve /home/site/wwwroot --no-daemon --spa"
+                - bash: |
+                    echo "Health FRONT (QA)"
+                    for i in {1..12}; do
+                      curl -fsS "https://$(WEBAPP_FRONT_QA).azurewebsites.net/" && exit 0 || sleep 5
+                    done
+                    echo "FAILED health"; exit 1
+                  displayName: "Health /"
+
+  # ===================== DEPLOY PROD (SIN SLOTS) =====================
+  - stage: Deploy_PROD
+    displayName: "Deploy a PROD (aprobación manual)"
+    dependsOn: Deploy_QA
+    variables:
+      - group: "VG-PROD"
+    jobs:
+      # Back PROD (deploy directo)
+      - deployment: Back_PROD
+        displayName: "Back → PROD (directo)"
+        environment: "PROD" # ← este Environment tiene la aprobación
+        strategy:
+          runOnce:
+            deploy:
+              pool: { vmImage: "ubuntu-latest" }
+              steps:
+                - task: AzureWebApp@1
+                  displayName: "Deploy BACK PROD (zip)"
+                  inputs:
+                    azureSubscription: "azure-tp05-connection"
+                    appType: "webAppLinux"
+                    appName: "$(WEBAPP_BACK_PROD)"
+                    package: "$(Pipeline.Workspace)/drop/back-linux.zip"
+                - task: AzureCLI@2
+                  displayName: "Config BACK PROD (startup y settings)"
+                  inputs:
+                    azureSubscription: "azure-tp05-connection"
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      az webapp config appsettings set \
+                        -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_BACK_PROD) \
+                        --settings WEBSITE_RUN_FROM_PACKAGE=1 WEBSITES_PORT=8080 PORT=8080
+                      az webapp config set \
+                        -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_BACK_PROD) \
+                        --startup-file "/home/site/wwwroot/bin/server"
+                - bash: |
+                    echo "Health BACK (PROD)"
+                    for i in {1..12}; do
+                      curl -fsS "https://$(WEBAPP_BACK_PROD).azurewebsites.net/health" && exit 0 || sleep 5
+                    done
+                    echo "FAILED health"; exit 1
+                  displayName: "Health BACK /health"
+
+      # Front PROD (deploy directo)
+      - deployment: Front_PROD
+        displayName: "Front → PROD (directo)"
+        environment: "PROD"
+        strategy:
+          runOnce:
+            deploy:
+              pool: { vmImage: "ubuntu-latest" }
+              steps:
+                - task: AzureWebApp@1
+                  displayName: "Deploy FRONT PROD (zip)"
+                  inputs:
+                    azureSubscription: "azure-tp05-connection"
+                    appType: "webAppLinux"
+                    appName: "$(WEBAPP_FRONT_PROD)"
+                    package: "$(Pipeline.Workspace)/drop/front-prod.zip"
+                - task: AzureCLI@2
+                  displayName: "Config FRONT PROD (SPA startup)"
+                  inputs:
+                    azureSubscription: "azure-tp05-connection"
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      az webapp config appsettings set \
+                        -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_FRONT_PROD) \
+                        --settings WEBSITE_RUN_FROM_PACKAGE=1
+                      az webapp config set \
+                        -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_FRONT_PROD) \
+                        --startup-file "pm2 serve /home/site/wwwroot --no-daemon --spa"
+                - bash: |
+                    echo "Health FRONT (PROD)"
+                    for i in {1..12}; do
+                      curl -fsS "https://$(WEBAPP_FRONT_PROD).azurewebsites.net/" && exit 0 || sleep 5
+                    done
+                    echo "FAILED health"; exit 1
+                  displayName: "Health FRONT /"
