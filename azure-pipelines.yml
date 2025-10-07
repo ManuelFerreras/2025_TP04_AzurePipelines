@@ -24,14 +24,15 @@ stages:
               VITE_API_BASE="$(API_BASE_QA)" npm run build
               cd ..
             displayName: "Build FRONT (QA)"
+
           - task: ArchiveFiles@2
+            displayName: "ZIP FRONT QA"
             inputs:
               rootFolderOrFile: "front/dist"
               includeRootFolder: false
               archiveType: "zip"
               archiveFile: "$(Build.ArtifactStagingDirectory)/front-qa.zip"
               replaceExistingArchive: true
-            displayName: "ZIP FRONT QA"
 
           # FRONT (React) - PROD
           - script: |
@@ -40,14 +41,15 @@ stages:
               VITE_API_BASE="$(API_BASE_PROD)" npm run build
               cd ..
             displayName: "Build FRONT (PROD)"
+
           - task: ArchiveFiles@2
+            displayName: "ZIP FRONT PROD"
             inputs:
               rootFolderOrFile: "front/dist"
               includeRootFolder: false
               archiveType: "zip"
               archiveFile: "$(Build.ArtifactStagingDirectory)/front-prod.zip"
               replaceExistingArchive: true
-            displayName: "ZIP FRONT PROD"
 
           # BACK (Go) → binario Linux y zip
           - script: |
@@ -58,14 +60,15 @@ stages:
               CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/server ./...
               ls -lah bin
             displayName: "Build BACK (Go) para Linux"
+
           - task: ArchiveFiles@2
+            displayName: "ZIP BACK (bin/)"
             inputs:
               rootFolderOrFile: "back/bin"
               includeRootFolder: true
               archiveType: "zip"
               archiveFile: "$(Build.ArtifactStagingDirectory)/back-linux.zip"
               replaceExistingArchive: true
-            displayName: "ZIP BACK (bin/)"
 
           - task: PublishBuildArtifacts@1
             displayName: "Publicar artefactos"
@@ -80,6 +83,11 @@ stages:
     dependsOn: Build
     variables:
       - group: "VG-QA"
+
+    # 👉 Todos los jobs del stage usan tu agente SelfHosted
+    pool:
+      name: SelfHosted
+
     jobs:
       # Back QA
       - deployment: Back_QA
@@ -88,7 +96,6 @@ stages:
         strategy:
           runOnce:
             deploy:
-              pool: { name: SelfHosted }
               steps:
                 - task: AzureWebApp@1
                   displayName: "Deploy BACK QA (zip)"
@@ -97,6 +104,7 @@ stages:
                     appType: "webAppLinux"
                     appName: "$(WEBAPP_BACK_QA)"
                     package: "$(Pipeline.Workspace)/drop/back-linux.zip"
+
                 - task: AzureCLI@2
                   displayName: "Config BACK QA (startup y settings)"
                   inputs:
@@ -110,6 +118,7 @@ stages:
                       az webapp config set \
                         -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_BACK_QA) \
                         --startup-file "/home/site/wwwroot/bin/server"
+
                 - bash: |
                     echo "Health BACK (QA)"
                     for i in {1..12}; do
@@ -125,7 +134,6 @@ stages:
         strategy:
           runOnce:
             deploy:
-              pool: { name: SelfHosted }
               steps:
                 - task: AzureWebApp@1
                   displayName: "Deploy FRONT QA (zip)"
@@ -134,6 +142,7 @@ stages:
                     appType: "webAppLinux"
                     appName: "$(WEBAPP_FRONT_QA)"
                     package: "$(Pipeline.Workspace)/drop/front-qa.zip"
+
                 - task: AzureCLI@2
                   displayName: "Config FRONT QA (SPA startup)"
                   inputs:
@@ -147,6 +156,7 @@ stages:
                       az webapp config set \
                         -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_FRONT_QA) \
                         --startup-file "pm2 serve /home/site/wwwroot --no-daemon --spa"
+
                 - bash: |
                     echo "Health FRONT (QA)"
                     for i in {1..12}; do
@@ -161,6 +171,11 @@ stages:
     dependsOn: Deploy_QA
     variables:
       - group: "VG-PROD"
+
+    # 👉 Todos los jobs del stage usan tu agente SelfHosted
+    pool:
+      name: SelfHosted
+
     jobs:
       # Back PROD (deploy directo)
       - deployment: Back_PROD
@@ -169,7 +184,6 @@ stages:
         strategy:
           runOnce:
             deploy:
-              pool: { name: SelfHosted }
               steps:
                 - task: AzureWebApp@1
                   displayName: "Deploy BACK PROD (zip)"
@@ -178,6 +192,7 @@ stages:
                     appType: "webAppLinux"
                     appName: "$(WEBAPP_BACK_PROD)"
                     package: "$(Pipeline.Workspace)/drop/back-linux.zip"
+
                 - task: AzureCLI@2
                   displayName: "Config BACK PROD (startup y settings)"
                   inputs:
@@ -191,6 +206,7 @@ stages:
                       az webapp config set \
                         -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_BACK_PROD) \
                         --startup-file "/home/site/wwwroot/bin/server"
+
                 - bash: |
                     echo "Health BACK (PROD)"
                     for i in {1..12}; do
@@ -206,7 +222,6 @@ stages:
         strategy:
           runOnce:
             deploy:
-              pool: { name: SelfHosted }
               steps:
                 - task: AzureWebApp@1
                   displayName: "Deploy FRONT PROD (zip)"
@@ -215,6 +230,7 @@ stages:
                     appType: "webAppLinux"
                     appName: "$(WEBAPP_FRONT_PROD)"
                     package: "$(Pipeline.Workspace)/drop/front-prod.zip"
+
                 - task: AzureCLI@2
                   displayName: "Config FRONT PROD (SPA startup)"
                   inputs:
@@ -228,6 +244,7 @@ stages:
                       az webapp config set \
                         -g rg-tp05-ingsoft3-2025 -n $(WEBAPP_FRONT_PROD) \
                         --startup-file "pm2 serve /home/site/wwwroot --no-daemon --spa"
+
                 - bash: |
                     echo "Health FRONT (PROD)"
                     for i in {1..12}; do
